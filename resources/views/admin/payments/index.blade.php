@@ -40,19 +40,23 @@
         </tr>
     </thead>
     <tbody>
-        @foreach($payments as $payment)
+        @forelse($payments as $payment)
         <tr>
             <td>#{{ $payment->id }}</td>
             <td>{{ $payment->reference }}</td>
             <td>#{{ $payment->print_job_id }}</td>
             <td>LKR {{ number_format($payment->amount, 2) }}</td>
-            <td><span class="badge bg-{{ $payment->status === 'successful' ? 'success' : ($payment->status === 'failed' ? 'danger' : 'warning') }}">{{ $payment->status }}</span></td>
+            <td><span class="badge bg-{{ $payment->status === 'successful' ? 'success' : ($payment->status === 'failed' ? 'danger' : ($payment->status === 'pending' ? 'warning' : ($payment->status === 'expired' ? 'secondary' : 'info'))) }}">{{ $payment->status }}</span></td>
             <td>{{ $payment->created_at->format('Y-m-d H:i') }}</td>
             <td>
                 <a href="{{ route('admin.payments.show', $payment) }}" class="btn btn-sm btn-info">View</a>
             </td>
         </tr>
-        @endforeach
+        @empty
+        <tr>
+            <td colspan="7" class="text-center text-muted py-4">No payments found.</td>
+        </tr>
+        @endforelse
     </tbody>
 </table>
 

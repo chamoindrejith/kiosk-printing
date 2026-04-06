@@ -41,20 +41,32 @@
         </tr>
     </thead>
     <tbody>
-        @foreach($jobs as $job)
+        @forelse($jobs as $job)
         <tr>
             <td>#{{ $job->id }}</td>
             <td>{{ $job->printer->name ?? '-' }}</td>
             <td>{{ $job->original_filename }}</td>
             <td>{{ $job->effective_page_count ?? $job->original_page_count }}</td>
             <td>LKR {{ number_format($job->total_price ?? 0, 2) }}</td>
-            <td><span class="badge bg-{{ $job->status === 'completed' ? 'success' : ($job->status === 'failed' ? 'danger' : 'primary') }}">{{ $job->status }}</span></td>
+            <td><span class="badge bg-{{ 
+                $job->status === 'completed' ? 'success' : 
+                ($job->status === 'failed' ? 'danger' : 
+                ($job->status === 'cancelled' ? 'secondary' : 
+                ($job->status === 'printing' ? 'info' : 
+                ($job->status === 'queued' ? 'primary' : 
+                ($job->status === 'payment_success' ? 'info' : 
+                ($job->status === 'awaiting_payment' ? 'warning' : 'primary')))))) 
+            }}">{{ $job->status }}</span></td>
             <td>{{ $job->created_at->format('Y-m-d H:i') }}</td>
             <td>
                 <a href="{{ route('admin.jobs.show', $job) }}" class="btn btn-sm btn-info">View</a>
             </td>
         </tr>
-        @endforeach
+        @empty
+        <tr>
+            <td colspan="8" class="text-center text-muted py-4">No jobs found.</td>
+        </tr>
+        @endforelse
     </tbody>
 </table>
 

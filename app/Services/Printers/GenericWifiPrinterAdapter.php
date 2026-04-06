@@ -9,7 +9,9 @@ use Illuminate\Support\Facades\Log;
 class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 {
     private Client $client;
+
     private int $timeout;
+
     private int $connectTimeout;
 
     public function __construct()
@@ -27,7 +29,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         $host = $printer->ip_address;
         $port = $printer->port ?? 631;
 
-        if (!$host) {
+        if (! $host) {
             return false;
         }
 
@@ -35,6 +37,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         $socket = @fsockopen($host, $port, $errno, $errstr, $this->connectTimeout);
         if ($socket) {
             fclose($socket);
+
             return true;
         }
 
@@ -43,6 +46,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
             'port' => $port,
             'error' => $errstr ?? 'socket_open_failed',
         ]);
+
         return false;
     }
 
@@ -82,7 +86,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                         'allow_raw_pdf' => $allowRawPdf,
                     ]);
 
-                    if (!$allowRawPdf) {
+                    if (! $allowRawPdf) {
                         throw new \Exception(
                             'Raw PDF printing is disabled. Configure printer for IPP/CUPS queue or set PRINTER_ALLOW_RAW_PDF=true to allow raw fallback.'
                         );
@@ -92,11 +96,11 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                         $jobId = $this->submitRawJob($host, $port, $pdfContent);
                     } catch (\Exception $rawException) {
                         throw new \Exception(
-                            'System print failed and raw fallback also failed: ' . $rawException->getMessage()
+                            'System print failed and raw fallback also failed: '.$rawException->getMessage()
                         );
                     }
 
-                    if (!$jobId) {
+                    if (! $jobId) {
                         throw $e;
                     }
                 }
@@ -113,14 +117,18 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                     ]);
 
                     $jobId = $this->extractJobId($response->getBody()->getContents());
+
+                    if (str_starts_with($jobId, 'printjob_')) {
+                        throw new \Exception('Printer did not return a valid job ID, falling back to CUPS');
+                    }
                 } catch (\Exception $e) {
                     // Many office printers reject direct IPP POST from custom clients.
                     // Fall back to system print utilities when available.
                     $jobId = $this->submitViaSystemPrint($printer, $filePath, $options, $e->getMessage());
                 }
             }
-            
-            Log::info("Print job submitted", [
+
+            Log::info('Print job submitted', [
                 'printer_id' => $printer->id,
                 'job_id' => $jobId,
                 'file' => $filePath,
@@ -128,7 +136,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 
             return $jobId;
         } catch (\Exception $e) {
-            Log::error("Failed to submit print job", [
+            Log::error('Failed to submit print job', [
                 'printer_id' => $printer->id,
                 'file' => $filePath,
                 'error' => $e->getMessage(),
@@ -139,6 +147,10 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 
     public function getJobStatus(Printer $printer, string $jobId): array
     {
+        if (str_starts_with($jobId, 'lp_')) {
+            return $this->getCupsJobStatus($printer, $jobId);
+        }
+
         $host = $printer->ip_address;
         $port = $printer->port ?? 631;
         $printerName = $printer->name;
@@ -150,12 +162,57 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 
             return $this->parseJobStatus($response->getBody()->getContents());
         } catch (\Exception $e) {
-            Log::warning("Failed to get job status", [
+            Log::warning('Failed to get job status', [
                 'job_id' => $jobId,
                 'error' => $e->getMessage(),
             ]);
+
             return ['status' => 'unknown', 'message' => $e->getMessage()];
         }
+    }
+
+    private function getCupsJobStatus(Printer $printer, string $jobId): array
+    {
+        $cupsQueue = $printer->capabilities['cups_queue'] ?? null;
+
+        if (! $cupsQueue) {
+            return ['status' => 'unknown', 'message' => 'No CUPS queue configured'];
+        }
+
+        $output = [];
+        $exitCode = 0;
+        exec(sprintf('lpstat -W not-completed -o %s 2>&1', escapeshellarg($cupsQueue)), $output, $exitCode);
+
+        $completedOutput = [];
+        exec(sprintf('lpstat -W completed -o %s 2>&1', escapeshellarg($cupsQueue)), $completedOutput, $exitCode);
+        $output = array_merge($output, $completedOutput);
+
+        $jobNumber = str_replace('lp_', '', $jobId);
+
+        foreach ($output as $line) {
+            if (preg_match('/(\S+)-(\d+)\s+.*\s+(completed|printing|pending|held)/', $line, $matches)) {
+                $queueName = $matches[1];
+                $reqId = $matches[2];
+                $state = $matches[3];
+
+                if ($queueName === $cupsQueue && (string) $reqId === $jobNumber) {
+                    $statusMap = [
+                        'completed' => 'completed',
+                        'printing' => 'printing',
+                        'pending' => 'pending',
+                        'held' => 'paused',
+                    ];
+
+                    return [
+                        'status' => $statusMap[$state] ?? 'unknown',
+                        'progress' => ($state === 'completed') ? 100 : 0,
+                        'raw' => $line,
+                    ];
+                }
+            }
+        }
+
+        return ['status' => 'completed', 'progress' => 100, 'message' => 'Job no longer in queue'];
     }
 
     public function cancelJob(Printer $printer, string $jobId): bool
@@ -165,12 +222,14 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 
         try {
             $this->client->request('DELETE', "http://{$host}:{$port}/jobs/{$jobId}");
+
             return true;
         } catch (\Exception $e) {
-            Log::error("Failed to cancel job", [
+            Log::error('Failed to cancel job', [
                 'job_id' => $jobId,
                 'error' => $e->getMessage(),
             ]);
+
             return false;
         }
     }
@@ -183,11 +242,11 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
     private function buildPrintOptions(array $options): array
     {
         $query = [];
-        
-        if (isset($options['color']) && !$options['color']) {
+
+        if (isset($options['color']) && ! $options['color']) {
             $query['print-color-mode'] = 'monochrome';
         }
-        
+
         if (isset($options['duplex']) && $options['duplex']) {
             $query['sides'] = 'two-sided-long-edge';
         } else {
@@ -210,6 +269,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         if (preg_match('/<job id="(\d+)"/', $response, $matches)) {
             return $matches[1];
         }
+
         return uniqid('printjob_');
     }
 
@@ -245,21 +305,21 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
     private function submitRawJob(string $host, int $port, string $data): string
     {
         $socket = @fsockopen($host, $port, $errno, $errstr, 10);
-        
-        if (!$socket) {
+
+        if (! $socket) {
             throw new \Exception("Cannot connect to printer: {$errstr}");
         }
 
         stream_set_timeout($socket, 30);
 
-    // Send raw PDF bytes directly; some printers reject/ignore PJL wrappers.
+        // Send raw PDF bytes directly; some printers reject/ignore PJL wrappers.
         fwrite($socket, $data);
 
         fclose($socket);
 
         Log::info("Raw print job sent to {$host}:{$port} via socket");
-        
-        return 'socket_' . uniqid();
+
+        return 'socket_'.uniqid();
     }
 
     private function submitViaSystemPrint(Printer $printer, string $filePath, array $options = [], string $previousError = ''): string
@@ -269,12 +329,12 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
 
         if ($cupsQueue !== null) {
             $lpArgs = $this->buildSystemPrintOptionArgs($options);
-            
-            if (!empty($options['page_range'])) {
+
+            if (! empty($options['page_range'])) {
                 $lpArgs[] = sprintf('-P %s', escapeshellarg($options['page_range']));
             }
-            
-            $argsStr = !empty($lpArgs) ? ' ' . implode(' ', $lpArgs) : '';
+
+            $argsStr = ! empty($lpArgs) ? ' '.implode(' ', $lpArgs) : '';
             $localCmd = sprintf('lp -d %s%s %s 2>&1', escapeshellarg($cupsQueue), $argsStr, $fileArg);
 
             $output = [];
@@ -282,13 +342,16 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
             exec($localCmd, $output, $exitCode);
 
             if ($exitCode === 0) {
+                $outputStr = implode("\n", $output);
                 Log::info('Print job sent via local CUPS queue', [
                     'printer_id' => $printer->id,
                     'queue' => $cupsQueue,
-                    'output' => implode("\n", $output),
+                    'output' => $outputStr,
                 ]);
 
-                return 'lp_' . uniqid();
+                $reqId = $this->extractRequestId($outputStr, $cupsQueue);
+
+                return 'lp_'.$reqId;
             }
 
             Log::warning('Local CUPS queue submission failed', [
@@ -304,7 +367,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         $hostArg = escapeshellarg("{$host}:{$port}");
         $queueArg = escapeshellarg('ipp/print/version=1.1');
         $systemPrintArgs = $this->buildSystemPrintOptionArgs($options);
-        $argsStr = !empty($systemPrintArgs) ? ' ' . implode(' ', $systemPrintArgs) : '';
+        $argsStr = ! empty($systemPrintArgs) ? ' '.implode(' ', $systemPrintArgs) : '';
 
         $lpCmd = sprintf(
             'lp -h %s -d %s%s %s 2>&1',
@@ -324,7 +387,8 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                 'method' => 'lp',
                 'output' => implode("\n", $output),
             ]);
-            return 'lp_' . uniqid();
+
+            return 'lp_'.uniqid();
         }
 
         $lprCmd = sprintf(
@@ -345,11 +409,12 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                 'method' => 'lpr',
                 'output' => implode("\n", $output),
             ]);
-            return 'lp_' . uniqid();
+
+            return 'lp_'.uniqid();
         }
 
         $errorOutput = trim(implode("\n", $output));
-        $message = "Print failed";
+        $message = 'Print failed';
         if ($previousError !== '') {
             $message .= ". Direct IPP error: {$previousError}";
         }
@@ -364,7 +429,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
     {
         $capabilities = is_array($printer->capabilities) ? $printer->capabilities : [];
 
-        if (!empty($capabilities['cups_queue'])) {
+        if (! empty($capabilities['cups_queue'])) {
             $configuredQueue = (string) $capabilities['cups_queue'];
 
             if ($this->cupsQueueExists($configuredQueue)) {
@@ -383,7 +448,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         }
 
         $defaultQueue = config('printers.default_cups_queue');
-        if (!empty($defaultQueue)) {
+        if (! empty($defaultQueue)) {
             if ($this->cupsQueueExists((string) $defaultQueue)) {
                 return (string) $defaultQueue;
             }
@@ -396,6 +461,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                 'printer_id' => $printer->id,
                 'error' => $e->getMessage(),
             ]);
+
             return null;
         }
     }
@@ -404,8 +470,13 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
     {
         $args = [];
 
-        if (!empty($options['copies'])) {
+        if (! empty($options['copies'])) {
             $args[] = sprintf('-n %d', max(1, (int) $options['copies']));
+        }
+
+        if (array_key_exists('color', $options) && ! $options['color']) {
+            $args[] = '-o ColorModel=Gray';
+            $args[] = '-o output-mode=monochrome';
         }
 
         if (array_key_exists('duplex', $options)) {
@@ -414,7 +485,7 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
                 : '-o sides=one-sided';
         }
 
-        if (!empty($options['paper_size'])) {
+        if (! empty($options['paper_size'])) {
             $args[] = sprintf('-o media=%s', escapeshellarg((string) $options['paper_size']));
         }
 
@@ -433,5 +504,17 @@ class GenericWifiPrinterAdapter implements PrinterGatewayInterface
         }
 
         return in_array($queueName, array_map('trim', $output), true);
+    }
+
+    private function extractRequestId(string $output, string $queueName): string
+    {
+        if (preg_match('/request id is '.$queueName.'-(\d+)/', $output, $matches)) {
+            return $matches[1];
+        }
+        if (preg_match('/request id is (\S+)-(\d+)/', $output, $matches)) {
+            return $matches[2];
+        }
+
+        return uniqid();
     }
 }

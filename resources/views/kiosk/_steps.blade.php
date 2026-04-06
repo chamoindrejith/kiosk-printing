@@ -8,9 +8,7 @@ $steps = [
 ];
 $currentStep = $currentStep ?? 1;
 ?>
-<div class="step-indicator mb-4 position-relative" id="step-indicator">
-    <button type="button" class="btn-close position-absolute top-0 end-0" style="font-size: 12px; padding: 4px 8px; opacity: 0.5;" onclick="document.getElementById('step-indicator').style.display='none'" title="Hide steps"></button>
-    
+<div class="step-indicator mb-4" id="step-indicator">
     @foreach($steps as $stepNum => $step)
         @php
         $isCompleted = $stepNum < $currentStep;

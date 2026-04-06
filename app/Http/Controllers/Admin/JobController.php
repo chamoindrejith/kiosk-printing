@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessPrintJob;
 use App\Models\PrintJob;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -38,6 +39,7 @@ class JobController extends Controller
     public function show(PrintJob $job): View
     {
         $job->load(['printer', 'payment', 'pages', 'events']);
+
         return view('admin.jobs.show', ['job' => $job]);
     }
 
@@ -45,7 +47,8 @@ class JobController extends Controller
     {
         if ($request->input('action') === 'resume' && in_array($job->status, ['paused', 'failed'])) {
             $job->update(['status' => 'queued']);
-            dispatch(new \App\Jobs\ProcessPrintJob($job->id));
+            dispatch(new ProcessPrintJob($job->id));
+
             return redirect()->route('admin.jobs.show', $job)->with('success', 'Job resumed');
         }
 
@@ -61,7 +64,8 @@ class JobController extends Controller
                 'last_confirmed_page' => 0,
                 'error_message' => null,
             ]);
-            dispatch(new \App\Jobs\ProcessPrintJob($job->id));
+            dispatch(new ProcessPrintJob($job->id));
+
             return redirect()->route('admin.jobs.show', $job)->with('success', 'Job queued for retry');
         }
 
@@ -73,6 +77,7 @@ class JobController extends Controller
         if (in_array($job->status, ['queued', 'dispatching', 'printing', 'paused'])) {
             $job->update(['status' => 'cancelled']);
             $job->recordEvent('cancelled_by_admin');
+
             return redirect()->route('admin.jobs.show', $job)->with('success', 'Job cancelled');
         }
 

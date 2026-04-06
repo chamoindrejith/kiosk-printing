@@ -29,7 +29,7 @@ class PrinterController extends Controller
             'code' => 'required|string|unique:printers,code|max:50',
             'name' => 'required|string|max:255',
             'location' => 'nullable|string|max:255',
-            'ip_address' => 'nullable|ip',
+            'ip_address' => 'required|ip',
             'port' => 'nullable|integer|min:1|max:65535',
             'protocol' => 'nullable|string|in:ipp,raw,http',
             'is_active' => 'boolean',
@@ -37,6 +37,7 @@ class PrinterController extends Controller
 
         $validated['is_active'] = $request->boolean('is_active', true);
         $validated['port'] = $validated['port'] ?? 631;
+        $validated['protocol'] = $validated['protocol'] ?? 'ipp';
 
         $printer = Printer::create($validated);
 
@@ -73,6 +74,8 @@ class PrinterController extends Controller
         ]);
 
         $validated['is_active'] = $request->boolean('is_active', true);
+        $validated['port'] = $validated['port'] ?? 631;
+        $validated['protocol'] = $validated['protocol'] ?? 'ipp';
 
         $printer->update($validated);
 
