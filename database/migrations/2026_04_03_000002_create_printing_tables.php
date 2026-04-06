@@ -23,7 +23,7 @@ return new class extends Migration
         Schema::create('print_jobs', function (Blueprint $table) {
             $table->id();
             $table->foreignId('printer_id')->constrained()->onDelete('cascade');
-            $table->foreignId('payment_id')->nullable()->constrained()->onDelete('set null');
+            $table->unsignedBigInteger('payment_id')->nullable();
             $table->string('status')->default('draft');
             $table->string('original_filename');
             $table->string('file_path');
@@ -85,6 +85,10 @@ return new class extends Migration
             $table->string('event_type');
             $table->json('payload');
             $table->timestamps();
+        });
+
+        Schema::table('print_jobs', function (Blueprint $table) {
+            $table->foreign('payment_id')->references('id')->on('payments')->nullOnDelete();
         });
     }
 
