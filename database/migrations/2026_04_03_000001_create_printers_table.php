@@ -1,0 +1,29 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('printers', function (Blueprint $table) {
+            $table->id();
+            $table->string('code')->unique();
+            $table->string('name');
+            $table->string('location')->nullable();
+            $table->string('ip_address')->nullable();
+            $table->integer('port')->default(631);
+            $table->string('protocol')->default('ipp');
+            $table->boolean('is_active')->default(true);
+            $table->json('capabilities')->nullable();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('printers');
+    }
+};
