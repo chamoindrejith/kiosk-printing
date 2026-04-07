@@ -67,7 +67,7 @@ class PrinterController extends Controller
             'code' => 'required|string|unique:printers,code,' . $printer->id . '|max:50',
             'name' => 'required|string|max:255',
             'location' => 'nullable|string|max:255',
-            'ip_address' => 'nullable|ip',
+            'ip_address' => 'required|ip',
             'port' => 'nullable|integer|min:1|max:65535',
             'protocol' => 'nullable|string|in:ipp,raw,http',
             'is_active' => 'boolean',
